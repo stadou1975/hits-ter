@@ -249,23 +249,40 @@
     stage.classList.remove("found");
   }
 
-  function tick() {
+  let lastScan = 0;
+  function tick(ts) {
     if (!scanning) return;
-    if (!busy && video.readyState === video.HAVE_ENOUGH_DATA) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
-      if (code && code.data) handleQr(code.data.trim());
+    if (!busy && video.readyState === video.HAVE_ENOUGH_DATA && ts - lastScan > 180) {
+      lastScan = ts;
+      try {
+        // On réduit l'image : jsQR est plus fiable et plus rapide autour de 600 px
+        const scale = Math.min(1, 640 / video.videoWidth);
+        canvas.width = Math.round(video.videoWidth * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(img.data, img.width, img.height, { inversionAttempts: "attemptBoth" });
+        if (code && code.data) handleQr(code.data.trim());
+      } catch (e) {
+        // On garde la boucle vivante même si une frame plante
+      }
     }
     requestAnimationFrame(tick);
   }
 
   async function startCamera() {
+    if (typeof jsQR === "undefined") {
+      setStatus("Le module de lecture QR n'a pas pu se charger. Vérifie ta connexion internet et recharge la page.", "err");
+      return;
+    }
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }, audio: false
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
       });
       video.srcObject = stream;
       video.hidden = false;
